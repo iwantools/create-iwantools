@@ -5,14 +5,14 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const mod = await import('../bin/create-iwantools.js')
-const { invocationOf, readTsv, javaMajor, mavenInvocation } = mod
+const { invocationOf, readTsv, javaMajor, mavenInvocation, probeDir, defaultWorkspaceDir, safeBaseName } = mod
 
 test('invocationOf：非 Windows 直通，不改参数', () => {
   const r = invocationOf('/usr/local/bin/pnpm', ['install', '--silent'], { isWin: false, resolved: '/usr/local/bin/pnpm' })
@@ -124,4 +124,52 @@ test('经符号链接入口（npx / .bin 形态）仍正常执行', () => {
   rmSync(dir, { recursive: true, force: true })
   assert.equal(r.syscall, undefined, `符号链接入口执行失败：${out}`)
   assert.match(out, /^\d+\.\d+\.\d+$/, `应有版本号输出，实际为：${JSON.stringify(out)}`)
+})
+
+/* ---------------------------------------------- 默认工作空间目录 = 当前目录 */
+
+test('probeDir：空目录 / 非空目录 / 工作区入口仓 三种形态', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'ciw-probe-'))
+  assert.deepEqual(probeDir(dir), { exists: true, empty: true, isEntryRepo: false })
+
+  writeFileSync(path.join(dir, 'keep.txt'), 'x')
+  assert.equal(probeDir(dir).empty, false)
+  assert.equal(probeDir(dir).isEntryRepo, false, '光有文件不算入口仓')
+
+  mkdirSync(path.join(dir, '.git'))
+  assert.equal(probeDir(dir).isEntryRepo, false, '只有 .git 还不算入口仓')
+  mkdirSync(path.join(dir, 'workspace'))
+  writeFileSync(path.join(dir, 'workspace', 'repos.tsv'), 'name\tpath\n')
+  assert.equal(probeDir(dir).isEntryRepo, true)
+
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('defaultWorkspaceDir：空目录直接就装在当前目录', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'ciw-dir-'))
+  assert.equal(defaultWorkspaceDir(dir, 'iwantools'), dir)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('defaultWorkspaceDir：已有工作区入口仓就地续装，不套子目录', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'ciw-dir-'))
+  mkdirSync(path.join(dir, '.git'))
+  mkdirSync(path.join(dir, 'workspace'))
+  writeFileSync(path.join(dir, 'workspace', 'repos.tsv'), 'name\tpath\n')
+  assert.equal(defaultWorkspaceDir(dir, 'iwantools'), dir)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('defaultWorkspaceDir：当前目录非空时退到 cwd/<name>，避免一按回车就报目录冲突', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'ciw-dir-'))
+  writeFileSync(path.join(dir, 'whatever.txt'), 'x')
+  assert.equal(defaultWorkspaceDir(dir, 'ws1'), path.join(dir, 'ws1'))
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('safeBaseName：取末级目录名，根目录与家目录一律返回空', () => {
+  assert.equal(safeBaseName(path.join(tmpdir(), 'my-ws')), 'my-ws')
+  assert.equal(safeBaseName(path.parse(process.cwd()).root), '')
+  assert.equal(safeBaseName(homedir()), '')
+  assert.equal(safeBaseName(path.join(tmpdir(), '工作区')), '', '中文名不能直接当名称')
 })

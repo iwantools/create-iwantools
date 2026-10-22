@@ -6,8 +6,8 @@ iwantools 工作空间一键搭建脚手架（爱玩工具站 · Iwan Admin）�
   iwantools · 爱玩工具站 · Iwan Admin
   工作空间脚手架 v0.3.2
 
-✔ 工作空间名称 … iwantools
-✔ 工作空间目录 … /Users/you/Documents/workspace/iwantools
+✔ 工作空间名称 … my-ws
+✔ 工作空间目录 … /Users/you/work/my-ws
 ✔ 环境检查 … git 2.50.1 · node 22.22.2 · gh 2.96.0 (you) · java 21.0.11 · pnpm 10.27.0 · docker 27.0.0
 ✔ 清单已读取 … 4 个仓库
 ✔ 安装组织 skills 到全局（~/.agents/skills） … 否 / 是
@@ -16,10 +16,10 @@ iwantools 工作空间一键搭建脚手架（爱玩工具站 · Iwan Admin）�
 ✔ 克隆后运行一致性校验 … 否 / 是
 
   执行计划
-  · /Users/you/Documents/workspace/iwantools
+  · /Users/you/work/my-ws
   · 克隆入口仓 › 按清单克隆 3 个仓库 › 一致性校验 › 安装组织 skills › 准备开发环境
 
-✔ 入口仓就绪 … /Users/you/Documents/workspace/iwantools
+✔ 入口仓就绪 … /Users/you/work/my-ws
 ✔ [1/3] iwan-admin
 ✔ [2/3] iwantools-site-ops
 ✔ [2/3] iwantools-site-ops upstream → iwantools/iwan-admin
@@ -41,15 +41,25 @@ iwantools 工作空间一键搭建脚手架（爱玩工具站 · Iwan Admin）�
 ## 使用
 
 ```bash
-npx github:iwantools/create-iwantools          # 未发布 npm 前的即时形态
-npm create iwantools                           # 发布后
+cd ~/work/my-ws                             # 先进入想装工作区的目录
+npx github:iwantools/create-iwantools       # 未发布 npm 前的即时形态
+npm create iwantools                        # 发布后
 ```
+
+**工作空间目录默认就是当前命令行所在目录**，名称默认取该目录的末级名。三种情况：
+
+| 启动位置 | 默认目录 | 说明 |
+|---|---|---|
+| 空目录 | 该目录本身 | `mkdir my-ws && cd my-ws` 后直接回车 |
+| 已是工作区（有 `.git` + `workspace/repos.tsv`） | 该目录本身 | 就地续装，已存在的仓库自动跳过 |
+| 非空、但不是工作区 | 该目录下的 `iwantools/` | 避免把已有文件当工作区，会打印一行原因 |
 
 指定名称 / 目录 / 脚本化：
 
 ```bash
-npx github:iwantools/create-iwantools my-ws
-npx github:iwantools/create-iwantools --yes --level skip --dir /data/iwt
+npx github:iwantools/create-iwantools my-ws                       # 指定名称
+npx github:iwantools/create-iwantools --dir /data/iwt             # 指定目录
+npx github:iwantools/create-iwantools --yes --level skip          # CI / 全默认
 ```
 
 `--help` 查看全部参数（`--name` / `--dir` / `--yes` / `--skills` / `--skip-skills` / `--level` / `--no-check` / `--check` / `--dry-run`）。

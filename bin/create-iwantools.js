@@ -31,13 +31,12 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import prompts from 'prompts'
 
-const VERSION = '0.3.2'
+const VERSION = '0.3.3'
 const ENTRY_REPO = 'iwantools/iwantools'
 const IS_WIN = process.platform === 'win32'
 // 仅用于挑选「安装命令文本」。IWANTOOLS_HINT_OS=win32 可在非 Windows 上校验文案。
 const HINT_OS = process.env.IWANTOOLS_HINT_OS || process.platform
 const DEFAULT_NAME = 'iwantools'
-const DEFAULT_DIR = path.join(homedir(), 'Documents', 'workspace', DEFAULT_NAME)
 
 /* ------------------------------------------------------------------- 颜色 */
 
@@ -267,7 +266,7 @@ ${c.bold('用法')}
   npm create iwantools -- [选项]
 
 ${c.bold('选项')}
-  --dir <路径>         工作空间目录（默认 ${DEFAULT_DIR}）
+  --dir <路径>         工作空间目录（默认当前目录；当前目录非空则装入其下 ${DEFAULT_NAME}）
   --name <名称>        工作空间名称（默认 ${DEFAULT_NAME}）
   -y, --yes            全默认、不提问（CI 用；非 TTY 时自动启用）
   --skills             安装组织 skills（默认询问）
@@ -602,6 +601,40 @@ export function syncSkills(root) {
   return { ok: failed.length === 0, runtime, done, failed }
 }
 
+/* ------------------------------------------------------------- 目录默认值 */
+
+/** 探测目录形态：是否空、是否工作区入口仓（.git + workspace/repos.tsv）。 */
+export function probeDir(dir) {
+  if (!existsSync(dir)) return { exists: false, empty: true, isEntryRepo: false }
+  let empty = false
+  try {
+    empty = readdirSync(dir).length === 0
+  } catch {
+    empty = false
+  }
+  const isEntryRepo = existsSync(path.join(dir, '.git')) && existsSync(path.join(dir, 'workspace', 'repos.tsv'))
+  return { exists: true, empty, isEntryRepo }
+}
+
+/**
+ * 默认工作空间目录 = 当前命令行启动位置（cwd）。
+ *
+ * 两个例外：cwd 非空、且不是已有工作区入口仓时，装入 cwd/<name>。
+ * 否则默认值必然撞上「目录已存在且不是 git 仓库」，用户一按回车就报错。
+ */
+export function defaultWorkspaceDir(cwd, name, probe = probeDir) {
+  const st = probe(cwd)
+  return st.empty || st.isEntryRepo ? cwd : path.join(cwd, name || DEFAULT_NAME)
+}
+
+/** 供「名称」默认值使用：从 cwd 末级目录名推，排除根目录与家目录这类无意义结果。 */
+export function safeBaseName(dir) {
+  const base = path.basename(path.resolve(dir))
+  if (!base || base === path.sep || /^[A-Za-z]:$/.test(base)) return ''
+  if (path.resolve(dir) === path.resolve(homedir())) return ''
+  return /^[\w.-]+$/.test(base) ? base : ''
+}
+
 /* ------------------------------------------------------------- 后端命令解析 */
 
 /**
@@ -654,13 +687,18 @@ async function main() {
   if (ctx.auto && !o.yes) note(`  非交互终端：自动采用默认值`)
 
   /* 1) 名称与目录 ------------------------------------------------------- */
+  // 默认目录就是「你在这里敲命令」的目录；只有它非空且不是工作区时，才退到子目录。
+  const cwd = process.cwd()
+  const cwdState = probeDir(cwd)
+  const nameDefault = cwdState.empty || cwdState.isEntryRepo ? safeBaseName(cwd) || DEFAULT_NAME : DEFAULT_NAME
+
   const name =
     (await ask(
       {
         type: 'text',
         name: 'name',
         message: '工作空间名称',
-        initial: DEFAULT_NAME,
+        initial: nameDefault,
         validate: (v) => (/^[\w.-]+$/.test(v) ? true : '只允许字母、数字、- . _'),
       },
       ctx,
@@ -671,12 +709,15 @@ async function main() {
     return 0
   }
 
-  const dirDefault = path.join(homedir(), 'Documents', 'workspace', name || DEFAULT_NAME)
+  const dirDefault = defaultWorkspaceDir(cwd, name || DEFAULT_NAME, () => cwdState)
   let dir = o.dir || ''
   if (dir) {
     if (dir === '~' || dir.startsWith('~/') || dir.startsWith('~\\')) dir = path.join(homedir(), dir.slice(1))
     answered('工作空间目录', path.resolve(dir))
   } else {
+    if (dirDefault !== cwd && !ctx.auto) {
+      note(`  ${c.dim('当前目录非空，装入子目录')} ${c.bold(path.basename(dirDefault))}${c.dim('（--dir 可指定别处）')}`)
+    }
     dir = await ask({ type: 'text', name: 'dir', message: '工作空间目录', initial: dirDefault }, ctx)
     if (ctx.canceled) {
       note('  已取消')
@@ -971,7 +1012,7 @@ async function main() {
   const okAll = cloneFailed.length === 0 && bad === 0
   if (okAll) {
     ok(`${c.bold('工作空间就绪')} ${c.dim(`${secs}s`)}`)
-    out(`  ${c.dim(sym.dot)} 仓库 ${manifest.length}/${manifest.length} ${c.dim(sym.dot)} 校验 ${doCheck ? '通过' : '跳过'} ${c.dim(sym.dot)} skills ${doSkills ? '已同步' : '跳过'} ${c.dim(sym.dot)} ${levelText}`)
+    out(`  ${c.dim(sym.dot)} 仓库 ${manifest.length}/${manifest.length} ${c.dim(sym.dot)} 校验 ${doCheck ? '通过' : '跳过'} ${c.dim(sym.dot)} skills ${doSkills ? '已同步' : '跳过'} ${c.dim(sym.dot)} 开发环境 ${levelText}`)
   } else {
     warn(`${c.bold('部分完成')} ${c.dim(`${secs}s`)}`)
   }
