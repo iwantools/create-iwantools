@@ -3,11 +3,14 @@
  * 覆盖那些「在 macOS 上跑不出来、但 Windows 上必炸」的分支。
  */
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
+const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const mod = await import('../bin/create-iwantools.js')
 const { invocationOf, readTsv, javaMajor, mavenInvocation } = mod
 
@@ -105,4 +108,20 @@ test('mavenInvocation：什么都没有时返回 null（由调用方给出可操
   const r = mavenInvocation(dir, { isWin: true, hasBin: () => false })
   rmSync(dir, { recursive: true, force: true })
   assert.equal(r, null)
+})
+
+/**
+ * npx 形态的回归：`npx github:…` 执行的是 node_modules/.bin 里的符号链接，
+ * argv[1] 是链接路径而 import.meta.url 已被解成真实路径。曾经因此判成"非入口"，
+ * 于是 `npx github:iwantools/create-iwantools` 一声不响退出 0。这里锁住它。
+ */
+test('经符号链接入口（npx / .bin 形态）仍正常执行', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'ciw-link-'))
+  const link = path.join(dir, 'create-iwantools')
+  symlinkSync(path.join(repoRoot, 'bin', 'create-iwantools.js'), link)
+  const r = spawnSync(process.execPath, [link, '--version'], { encoding: 'utf8' })
+  const out = `${r.stdout || ''}${r.stderr || ''}`.replace(/\x1b\[[0-9;]*m/g, '').trim()
+  rmSync(dir, { recursive: true, force: true })
+  assert.equal(r.syscall, undefined, `符号链接入口执行失败：${out}`)
+  assert.match(out, /^\d+\.\d+\.\d+$/, `应有版本号输出，实际为：${JSON.stringify(out)}`)
 })

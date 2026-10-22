@@ -10,17 +10,28 @@
  *  2. 全平台单代码路径：不调用 shell 脚本、不用 `sh -c`、不拼 `cd &&`。
  *     Windows 的 .cmd 垫片统一经 cmd.exe /c；路径一律走 spawn 的 cwd。
  *
- * UI 层用 prompts + ora（与 create-vue 同栈）：答过的题留在屏上、值染青色、方向键选择。
- * 颜色自己实现，只认 NO_COLOR / FORCE_COLOR / isTTY，避免再引一层依赖。
+ * UI 层用 prompts（与 create-vue 同栈）：答过的题留在屏上、值染青色、方向键选择。
+ * spinner 与颜色自己实现，只认 NO_COLOR / FORCE_COLOR / isTTY，避免再引一层依赖。
+ * 不用 ora：它的 stdin-discarder 会接管 stdin，与 prompts 抢输入，实测卡死在首个提问。
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, cpSync, writeFileSync, statSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  cpSync,
+  writeFileSync,
+  statSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import prompts from 'prompts'
 
-const VERSION = '0.3.0'
+const VERSION = '0.3.1'
 const ENTRY_REPO = 'iwantools/iwantools'
 const IS_WIN = process.platform === 'win32'
 // 仅用于挑选「安装命令文本」。IWANTOOLS_HINT_OS=win32 可在非 Windows 上校验文案。
@@ -984,12 +995,27 @@ const indent = (text, n) =>
     .map((l) => `${' '.repeat(n)}${l}`)
     .join('\n')
 
+/**
+ * 是否被直接执行。
+ *
+ * 不能用 `path.resolve(argv[1]) === fileURLToPath(import.meta.url)`：经
+ * `node_modules/.bin/*` 这类符号链接启动时，argv[1] 是链接路径，而 import.meta.url
+ * 已被 Node 解成真实路径，两者永不相等 —— 表现为 `npx github:…` 一声不响退出 0。
+ * 因此两边都先 realpath 再比；仍不相等时按文件名兜底，兼容 .cmd/.ps1 垫片与打包器。
+ */
 const isMain = (() => {
-  try {
-    return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-  } catch {
-    return false
+  const entry = process.argv[1]
+  if (!entry) return false
+  const self = fileURLToPath(import.meta.url)
+  const real = (p) => {
+    try {
+      return realpathSync(p)
+    } catch {
+      return path.resolve(p)
+    }
   }
+  if (real(entry) === real(self)) return true
+  return path.basename(entry).replace(/\.(?:[cm]?js|[cm]?ts|cmd|bat|ps1)$/i, '') === 'create-iwantools'
 })()
 
 if (isMain) {

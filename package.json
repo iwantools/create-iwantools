@@ -1,6 +1,6 @@
 {
   "name": "create-iwantools",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "iwantools 工作空间一键搭建脚手架（爱玩工具站 · Iwan Admin），macOS/Windows/Linux 通用",
   "type": "module",
   "bin": {
