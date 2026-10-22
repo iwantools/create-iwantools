@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,7 +12,7 @@ import test from 'node:test'
 
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const mod = await import('../bin/create-iwantools.js')
-const { invocationOf, readTsv, javaMajor, mavenInvocation, probeDir, defaultWorkspaceDir, safeBaseName } = mod
+const { invocationOf, readTsv, javaMajor, mavenInvocation, probeDir, defaultWorkspaceDir, safeBaseName, skillsRepoPath, syncSkills } = mod
 
 test('invocationOf：非 Windows 直通，不改参数', () => {
   const r = invocationOf('/usr/local/bin/pnpm', ['install', '--silent'], { isWin: false, resolved: '/usr/local/bin/pnpm' })
@@ -172,4 +172,59 @@ test('safeBaseName：取末级目录名，根目录与家目录一律返回空',
   assert.equal(safeBaseName(path.parse(process.cwd()).root), '')
   assert.equal(safeBaseName(homedir()), '')
   assert.equal(safeBaseName(path.join(tmpdir(), '工作区')), '', '中文名不能直接当名称')
+})
+
+/* --------------------------------------------------------- skills 源路径解析 */
+
+test('skillsRepoPath：按清单名解析；再更名时按 path 含 skills 兜底；缺失返回 null', () => {
+  assert.equal(skillsRepoPath([{ name: 'iwantools-skills', path: 'iwantools-skills' }]), 'iwantools-skills')
+  // 仓库将来再更名：name 变了但 path 仍含 skills，兜底命中，脚手架不用跟着改
+  assert.equal(skillsRepoPath([{ name: '某新名', path: 'org-skills' }]), 'org-skills')
+  assert.equal(skillsRepoPath([{ name: 'iwan-admin', path: 'projects/iwan-admin' }]), null)
+  assert.equal(skillsRepoPath(null), null)
+})
+
+/* --------------------------------------------------------------- skills 同步 */
+
+test('syncSkills：双目标装 active、按 marker 清退役目录、写回 marker', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'ciw-skills-'))
+  const src = path.join(root, 'iwantools-skills')
+  mkdirSync(path.join(src, 'skills', 'sk-a'), { recursive: true })
+  mkdirSync(path.join(src, 'skills', 'sk-b'), { recursive: true })
+  writeFileSync(path.join(src, 'skills', 'sk-a', 'SKILL.md'), 'a')
+  writeFileSync(path.join(src, 'skills', 'sk-b', 'SKILL.md'), 'b')
+  writeFileSync(path.join(src, 'skills.tsv'), 'name\tstate\tnotes\nsk-a\tusable\t\nsk-b\tdraft\t\nsk-old\tretired\t\n')
+
+  const tgt = path.join(root, 'runtime')
+  mkdirSync(path.join(tgt, 'sk-old'), { recursive: true })
+  writeFileSync(path.join(tgt, '.iwantools-owned.json'), '{"owned":["sk-old"]}')
+
+  const manifest = [{ name: 'iwantools-skills', repository: 'iwantools/iwantools-skills', path: 'iwantools-skills', upstream: '', required: 'true' }]
+  const r = syncSkills(root, manifest, { targets: [tgt] })
+
+  assert.equal(r.ok, true, JSON.stringify(r.failed))
+  assert.deepEqual(r.done.sort(), ['sk-a', 'sk-b'])
+  assert.equal(existsSync(path.join(tgt, 'sk-a', 'SKILL.md')), true)
+  assert.equal(existsSync(path.join(tgt, 'sk-b', 'SKILL.md')), true)
+  assert.equal(existsSync(path.join(tgt, 'sk-old')), false, 'marker 里已退役的目录应被清理')
+  const marker = JSON.parse(readFileSync(path.join(tgt, '.iwantools-owned.json'), 'utf8'))
+  assert.deepEqual([...marker.owned].sort(), ['sk-a', 'sk-b'])
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('syncSkills：清单找不到 skills 仓时报可操作错误，不碰任何目录', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'ciw-skills-'))
+  const r = syncSkills(root, [{ name: 'iwan-admin', path: 'projects/iwan-admin' }], { targets: [] })
+  rmSync(root, { recursive: true, force: true })
+  assert.equal(r.ok, false)
+  assert.match(r.failed[0], /repos\.tsv/)
+})
+
+test('syncSkills：skills.tsv 缺失时报仓路径，而不是旧硬编码目录', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'ciw-skills-'))
+  mkdirSync(path.join(root, 'iwantools-skills'), { recursive: true })
+  const r = syncSkills(root, [{ name: 'iwantools-skills', path: 'iwantools-skills' }], { targets: [] })
+  rmSync(root, { recursive: true, force: true })
+  assert.equal(r.ok, false)
+  assert.match(r.failed[0], /iwantools-skills/)
 })

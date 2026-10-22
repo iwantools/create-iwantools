@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import prompts from 'prompts'
 
-const VERSION = '0.3.3'
+const VERSION = '0.3.4'
 const ENTRY_REPO = 'iwantools/iwantools'
 const IS_WIN = process.platform === 'win32'
 // 仅用于挑选「安装命令文本」。IWANTOOLS_HINT_OS=win32 可在非 Windows 上校验文案。
@@ -280,7 +280,7 @@ ${c.bold('选项')}
 
 ${c.bold('环境要求')}
   必需：git、Node >= 20
-  可选：gh（私有仓库克隆）、Java 21、pnpm、Docker —— 缺失只跳过对应步骤
+  可选：gh（私有仓库克隆）、Java ≥21（推荐 25，两线通用）、pnpm、Docker —— 缺失只跳过对应步骤
 
 ${c.bold('退出码')}
   0 成功或用户取消   1 必需依赖缺失 / 必需仓库克隆失败`
@@ -292,14 +292,14 @@ const FIX = {
   git: { darwin: 'brew install git', win32: 'winget install --id Git.Git -e', linux: 'sudo apt install -y git' },
   gh: { darwin: 'brew install gh', win32: 'winget install --id GitHub.cli -e', linux: 'sudo apt install -y gh' },
   node: {
-    darwin: 'brew install node@22',
+    darwin: 'brew install node@24',
     win32: 'winget install --id OpenJS.NodeJS.LTS -e',
-    linux: 'nvm install 22 && nvm use 22',
+    linux: 'nvm install 24 && nvm use 24',
   },
   java: {
-    darwin: 'brew install --cask temurin@21',
-    win32: 'winget install --id EclipseAdoptium.Temurin.21.JDK -e',
-    linux: 'sudo apt install -y openjdk-21-jdk',
+    darwin: 'brew install --cask temurin@25',
+    win32: 'winget install --id EclipseAdoptium.Temurin.25.JDK -e',
+    linux: 'sudo apt install -y openjdk-25-jdk',
   },
   pnpm: { darwin: 'corepack enable pnpm', win32: 'corepack enable pnpm', linux: 'corepack enable pnpm' },
   docker: {
@@ -364,7 +364,9 @@ export function probeEnv() {
     if (!r.ok) return { status: 'miss', detail: '' }
     const ver = (r.out.match(/version\s+"?([\d._]+)/i) || [])[1] || ''
     const mj = javaMajor(r.out)
-    return mj === 21 ? { status: 'ok', detail: ver } : { status: 'old', detail: `${ver || '?'}（需 21）` }
+    // ≥21 即可用（v0.3.0 线 target 21）；25 两线通用（可编 21 target，见 TECH-STACK ADR-0007）
+    if (mj >= 21) return { status: 'ok', detail: mj >= 25 ? ver : `${ver}（25 可两线通用）` }
+    return { status: 'old', detail: `${ver || '?'}（需 ≥21，推荐 25）` }
   })
 
   push('pnpm', 'pnpm', false, () => {
@@ -404,7 +406,7 @@ function levelChoices(env) {
   const dockerOk = st('docker') === 'ok'
   const javaOk = st('java') === 'ok'
   const pnpmOk = st('pnpm') === 'ok' || Boolean(which('corepack'))
-  const fullMissing = [!dockerOk && 'Docker', !javaOk && 'Java 21', !pnpmOk && 'pnpm'].filter(Boolean)
+  const fullMissing = [!dockerOk && 'Docker', !javaOk && 'Java ≥21', !pnpmOk && 'pnpm'].filter(Boolean)
   return [
     {
       title: dockerOk ? `仅数据库 + Redis  ${c.dim('（秒级）')}` : `仅数据库 + Redis  ${c.dim('（Docker 不可用，已禁用）')}`,
@@ -566,39 +568,99 @@ function paintCell(v) {
 
 /* --------------------------------------------------------------- skills 同步 */
 
-export function syncSkills(root) {
-  const src = path.join(root, 'ai-skills')
+const SKILL_ACTIVE_STATES = ['draft', 'usable', 'trusted']
+
+/**
+ * skills 源码仓目录：从 repos.tsv 清单解析，不硬编码目录名——
+ * 源码仓曾更名，硬编码目录当时漏改导致本步骤必失败（教训见入口仓
+ * standards/AI-CODING.md「重命名与基线变更的波及检查」）。
+ * 锚定策略：优先按仓库名 iwantools-skills 查行；再更名时按 path 含 skills 兜底。
+ */
+export function skillsRepoPath(manifest) {
+  const rows = manifest || []
+  const hit = rows.find((r) => r.name === 'iwantools-skills') || rows.find((r) => /skills/.test(r.path || ''))
+  return hit ? hit.path : null
+}
+
+/** 拷入后清掉 .DS_Store（与 sync.sh 的 rsync --exclude 对齐） */
+function rmDsStore(dir) {
+  try {
+    for (const name of readdirSync(dir)) {
+      const p = path.join(dir, name)
+      if (statSync(p).isDirectory()) rmDsStore(p)
+      else if (name === '.DS_Store') rmSync(p)
+    }
+  } catch {}
+}
+
+/**
+ * 安装组织 skills 到全局，与 iwantools-skills/scripts/sync.sh 同语义：
+ * 双目标（~/.workbuddy/skills 与 ~/.agents/skills，可被同名环境变量覆盖）、
+ * draft/usable/trusted 全装、按 marker 清理已退役目录、写回 marker。
+ * 不直接调 sync.sh 是因为 Windows 不保证有 bash；两处语义漂移由入口仓
+ * check-workspace.sh 的退役标识扫描兜底。
+ */
+export function syncSkills(root, manifest, { targets } = {}) {
+  const srcPath = skillsRepoPath(manifest)
+  if (!srcPath) {
+    const known = (manifest || []).map((r) => r.name).join('、') || '（空）'
+    return { ok: false, targets: [], done: [], failed: [`repos.tsv 中找不到 skills 源码仓（现有：${known}）`] }
+  }
+  const src = path.join(root, srcPath)
   const states = path.join(src, 'skills.tsv')
-  if (!existsSync(states)) return { ok: false, done: [], failed: ['ai-skills/skills.tsv 缺失'] }
-  const runtime = process.env.AGENTS_SKILLS_DIR || path.join(homedir(), '.agents', 'skills')
+  if (!existsSync(states)) return { ok: false, targets: [], done: [], failed: [`${srcPath}/skills.tsv 缺失`] }
+
   const names = readTsv(states)
-    .filter((r) => ['draft', 'usable', 'trusted'].includes((r.state || '').toLowerCase()))
+    .filter((r) => SKILL_ACTIVE_STATES.includes((r.state || '').toLowerCase()))
     .map((r) => r.name)
     .filter(Boolean)
-  if (!names.length) return { ok: true, runtime, done: [], failed: [] }
+  const dsts = targets || [
+    process.env.WORKBUDDY_SKILLS_DIR || path.join(homedir(), '.workbuddy', 'skills'),
+    process.env.AGENTS_SKILLS_DIR || path.join(homedir(), '.agents', 'skills'),
+  ]
 
-  const done = []
+  const done = new Set()
   const failed = []
-  mkdirSync(runtime, { recursive: true })
-  for (const name of names) {
-    const from = path.join(src, 'skills', name)
-    const to = path.join(runtime, name)
-    if (!existsSync(from)) {
-      failed.push(`${name}（源码缺失）`)
+  for (const runtime of dsts) {
+    try {
+      mkdirSync(runtime, { recursive: true })
+    } catch (e) {
+      failed.push(`${runtime}（${e.code || e.message}）`)
       continue
     }
+    // marker 里登记、但已不在 active 清单的旧目录一并清掉（同 sync.sh 退役清理）
+    const marker = path.join(runtime, '.iwantools-owned.json')
+    let ownedBefore = []
     try {
-      rmSync(to, { recursive: true, force: true })
-      cpSync(from, to, { recursive: true })
-      done.push(name)
-    } catch (e) {
-      failed.push(`${name}（${e.code || e.message}）`)
+      ownedBefore = JSON.parse(readFileSync(marker, 'utf8')).owned || []
+    } catch {}
+    for (const stale of ownedBefore.filter((n) => !names.includes(n))) {
+      try {
+        rmSync(path.join(runtime, stale), { recursive: true, force: true })
+      } catch {}
     }
+    for (const name of names) {
+      const from = path.join(src, 'skills', name)
+      const to = path.join(runtime, name)
+      if (!existsSync(from)) {
+        if (!failed.includes(`${name}（源码缺失）`)) failed.push(`${name}（源码缺失）`)
+        continue
+      }
+      try {
+        rmSync(to, { recursive: true, force: true })
+        cpSync(from, to, { recursive: true })
+        rmDsStore(to)
+        done.add(name)
+      } catch (e) {
+        const msg = `${name}（${e.code || e.message}）`
+        if (!failed.includes(msg)) failed.push(msg)
+      }
+    }
+    try {
+      writeFileSync(marker, `${JSON.stringify({ owned: names }, null, 2)}\n`)
+    } catch {}
   }
-  try {
-    writeFileSync(path.join(runtime, '.iwantools-owned.json'), `${JSON.stringify({ owned: done }, null, 2)}\n`)
-  } catch {}
-  return { ok: failed.length === 0, runtime, done, failed }
+  return { ok: failed.length === 0, targets: dsts, done: [...done], failed }
 }
 
 /* ------------------------------------------------------------- 目录默认值 */
@@ -794,7 +856,7 @@ async function main() {
   let askedOptional = false
 
   const doSkills = await ask(
-    { type: 'toggle', name: 'skills', message: '安装组织 skills 到全局（~/.agents/skills）', initial: true, active: '是', inactive: '否' },
+    { type: 'toggle', name: 'skills', message: '安装组织 skills 到全局（~/.workbuddy/skills 与 ~/.agents/skills）', initial: true, active: '是', inactive: '否' },
     ctx,
     o.skills,
   )
@@ -928,14 +990,14 @@ async function main() {
   /* 9) skills ----------------------------------------------------------- */
   out()
   if (doSkills) {
-    const sp = spinner('安装组织 skills 到全局')
+    const sp = spinner('安装组织 skills 到全局（~/.workbuddy/skills 与 ~/.agents/skills）')
     sp.start()
-    const r = syncSkills(dir)
-    if (r.ok) sp.succeed(`skills ${r.done.length} 个 ${c.dim(sym.arrow)} ${c.dim(r.runtime)}`)
+    const r = syncSkills(dir, manifestAll)
+    if (r.ok) sp.succeed(`skills ${r.done.length} 个 ${c.dim(sym.arrow)} ${c.dim(r.targets.join(' 与 '))}`)
     else {
       sp.warn('skills 部分失败')
       for (const f of r.failed) warn(`  ${f}`)
-      note(`  可稍后手动：bash ai-skills/scripts/sync.sh sync`)
+      note(`  可稍后手动：bash iwantools-skills/scripts/sync.sh sync`)
     }
   }
 
@@ -964,7 +1026,7 @@ async function main() {
   if (level === 'full') {
     const serverDir = path.join(adminDir, 'server')
     const javaOk = env.find((e) => e.key === 'java').status === 'ok'
-    if (!javaOk) pending.push('后端未构建：Java 21 缺失或版本不符')
+    if (!javaOk) pending.push('后端未构建：Java 缺失或低于 21（推荐 25，两线通用）')
     else if (!existsSync(serverDir)) pending.push('后端未构建：projects/iwan-admin/server 不存在')
     else {
       const mvn = mavenInvocation(serverDir, { isWin: IS_WIN, hasBin: (b) => which(b) !== null })

@@ -4,13 +4,13 @@ iwantools 工作空间一键搭建脚手架（爱玩工具站 · Iwan Admin）�
 
 ```
   iwantools · 爱玩工具站 · Iwan Admin
-  工作空间脚手架 v0.3.2
+  工作空间脚手架 v0.3.4
 
 ✔ 工作空间名称 … my-ws
 ✔ 工作空间目录 … /Users/you/work/my-ws
-✔ 环境检查 … git 2.50.1 · node 22.22.2 · gh 2.96.0 (you) · java 21.0.11 · pnpm 10.27.0 · docker 27.0.0
+✔ 环境检查 … git 2.50.1 · node 24.10.0 · gh 2.96.0 (you) · java 25.0.1 · pnpm 10.27.0 · docker 27.0.0
 ✔ 清单已读取 … 4 个仓库
-✔ 安装组织 skills 到全局（~/.agents/skills） … 否 / 是
+✔ 安装组织 skills 到全局（~/.workbuddy/skills 与 ~/.agents/skills） … 否 / 是
 ✔ 额外克隆 github-profile （.github） … 否 / 是
 ✔ 开发环境准备到 › 仅数据库 + Redis （秒级）
 ✔ 克隆后运行一致性校验 … 否 / 是
@@ -23,9 +23,9 @@ iwantools 工作空间一键搭建脚手架（爱玩工具站 · Iwan Admin）�
 ✔ [1/3] iwan-admin
 ✔ [2/3] iwantools-site-ops
 ✔ [2/3] iwantools-site-ops upstream → iwantools/iwan-admin
-✔ [3/3] ai-skills
+✔ [3/3] iwantools-skills
 ✔ 一致性校验通过
-✔ skills 2 个 → ~/.agents/skills
+✔ skills 2 个 → ~/.workbuddy/skills 与 ~/.agents/skills
 ✔ Postgres :25432 / Redis :26379 已启动
 
 ✔ 工作空间就绪 34.2s
@@ -72,7 +72,7 @@ npx github:iwantools/create-iwantools --yes --level skip          # CI / 全默�
 | git | 是 | 中止 |
 | Node ≥ 20 | 是 | 中止 |
 | gh（+ `gh auth login`） | 否 | 回退 `git clone`，私有仓库依赖本机 git 凭据 |
-| Java 21 | 否 | 跳过「后端构建」，`full` 档位自动禁用 |
+| Java ≥21（推荐 25） | 否 | 跳过「后端构建」，`full` 档位自动禁用。JDK 25 可编译 v0.3.0 的 21 target，两线通用 |
 | pnpm（或 corepack） | 否 | 跳过「前端依赖」，`full` 档位自动禁用 |
 | Docker（运行中） | 否 | 跳过数据库 / Redis，`db`/`full` 档位自动禁用 |
 
@@ -83,7 +83,7 @@ npx github:iwantools/create-iwantools --yes --level skip          # CI / 全默�
 - **硬前置最小化**：拿到工作区（克隆全部仓库）不依赖 Java / pnpm / Docker。
 - **单代码路径**：脚本内不调用 bash 脚本、不用 `sh -c`、不拼 `cd && …`；一致性校验与 skills 同步均为 JS 实现，Windows 无需 WSL / Git Bash。
 - **Windows 垫片**：`.cmd` / `.bat`（pnpm、npm、mvnw.cmd）统一经 `cmd.exe /d /s /c` 调用，其余直接 spawn；启动即 `chcp 65001`。
-- **CRLF 安全**：`workspace/repos.tsv` / `ai-skills/skills.tsv` 按 `\r?\n` 解析，Windows 检出不会污染字段。
+- **CRLF 安全**：`workspace/repos.tsv` / `iwantools-skills/skills.tsv` 按 `\r?\n` 解析，Windows 检出不会污染字段。
 - **单仓失败不中止**：gh 克隆失败回退 git，网络抖动重试一次，失败仓库计入汇总并以退出码 1 结束；重跑同目录会自动跳过已存在的仓库。
 
 ## 测试
