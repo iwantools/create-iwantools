@@ -1,0 +1,21 @@
+{
+  "name": "create-iwantools",
+  "version": "0.1.0",
+  "description": "iwantools 工作空间一键搭建脚手架（爱玩工具站 · Iwan Admin）",
+  "type": "module",
+  "bin": {
+    "create-iwantools": "bin/create-iwantools.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.1"
+  },
+  "license": "UNLICENSED",
+  "private": false
+}
