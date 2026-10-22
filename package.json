@@ -1,7 +1,7 @@
 {
   "name": "create-iwantools",
-  "version": "0.1.0",
-  "description": "iwantools 工作空间一键搭建脚手架（爱玩工具站 · Iwan Admin）",
+  "version": "0.3.0",
+  "description": "iwantools 工作空间一键搭建脚手架（爱玩工具站 · Iwan Admin），macOS/Windows/Linux 通用",
   "type": "module",
   "bin": {
     "create-iwantools": "bin/create-iwantools.js"
@@ -11,10 +11,10 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
-    "@clack/prompts": "^1.8.1"
+    "prompts": "^2.4.2"
   },
   "license": "UNLICENSED",
   "private": false,
@@ -29,5 +29,8 @@
     "type": "git",
     "url": "git+https://github.com/iwantools/create-iwantools.git"
   },
-  "bugs": "https://github.com/iwantools/create-iwantools/issues"
+  "bugs": "https://github.com/iwantools/create-iwantools/issues",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
 }
