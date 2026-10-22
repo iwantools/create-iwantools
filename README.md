@@ -4,11 +4,12 @@ iwantools 工作空间一键搭建脚手架（爱玩工具站 · Iwan Admin）�
 
 ```
   iwantools · 爱玩工具站 · Iwan Admin
-  工作空间脚手架 v0.3.0
+  工作空间脚手架 v0.3.2
 
 ✔ 工作空间名称 … iwantools
 ✔ 工作空间目录 … /Users/you/Documents/workspace/iwantools
 ✔ 环境检查 … git 2.50.1 · node 22.22.2 · gh 2.96.0 (you) · java 21.0.11 · pnpm 10.27.0 · docker 27.0.0
+✔ 清单已读取 … 4 个仓库
 ✔ 安装组织 skills 到全局（~/.agents/skills） … 否 / 是
 ✔ 额外克隆 github-profile （.github） … 否 / 是
 ✔ 开发环境准备到 › 仅数据库 + Redis （秒级）

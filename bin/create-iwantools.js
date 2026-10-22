@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import prompts from 'prompts'
 
-const VERSION = '0.3.1'
+const VERSION = '0.3.2'
 const ENTRY_REPO = 'iwantools/iwantools'
 const IS_WIN = process.platform === 'win32'
 // 仅用于挑选「安装命令文本」。IWANTOOLS_HINT_OS=win32 可在非 Windows 上校验文案。
@@ -426,7 +426,9 @@ function levelChoices(env) {
 /* ----------------------------------------------------------------- 提问层 */
 
 const fmtVal = (v) => c.cyan(typeof v === 'string' ? v : String(v))
-const answered = (message, value) => out(`${c.green(sym.ok)} ${c.bold(message)} ${c.dim(sym.field)} ${fmtVal(value)}`)
+// 单选用 prompts 的 `›`，其余用 `…`，交互与非交互（--yes）才会长得一样
+const answered = (message, value, field = sym.field) =>
+  out(`${c.green(sym.ok)} ${c.bold(message)} ${c.dim(field)} ${fmtVal(value)}`)
 
 const labelOf = (choices, value) => {
   const hit = (choices || []).find((ch) => ch.value === value)
@@ -443,13 +445,14 @@ async function ask(q, ctx, preset) {
   const { type, name, message, choices = [], active = '是', inactive = '否', validate } = q
   const shown = (v) => (type === 'toggle' ? (v ? active : inactive) : type === 'select' ? labelOf(choices, v) : v)
   const fallback = q.def ?? (type === 'toggle' ? Boolean(q.initial) : type === 'select' ? choices.find((ch) => !ch.disabled)?.value : q.initial)
+  const field = type === 'select' ? '›' : sym.field
 
   if (preset !== undefined) {
-    answered(message, shown(preset))
+    answered(message, shown(preset), field)
     return preset
   }
   if (ctx.auto) {
-    answered(message, shown(fallback))
+    answered(message, shown(fallback), field)
     return fallback
   }
 
@@ -735,10 +738,9 @@ async function main() {
   }
   const picked = new Set()
 
-  /** 可选仓库（required=false）逐项询问；--yes 时一律不装 */
+  /** 可选仓库（required=false）逐项询问；--yes 时由 ask 以默认值「否」记账 */
   const askOptional = async (rows) => {
     for (const row of rows.filter((r) => (r.required ?? 'true') === 'false')) {
-      if (ctx.auto) continue
       const want = await ask(
         { type: 'toggle', name: 'extra', message: `额外克隆 ${row.name} ${c.dim(`（${row.path}）`)}`, initial: false },
         ctx,
@@ -783,7 +785,7 @@ async function main() {
     : null
   const todo = [
     entryExists ? null : '克隆入口仓',
-    plannedCount === null ? '按清单克隆全部仓库' : `按清单克隆 ${plannedCount} 个仓库`,
+    plannedCount === null ? '按清单克隆必需仓库（可选仓库默认不装）' : `按清单克隆 ${plannedCount} 个仓库`,
     doCheck ? '一致性校验' : null,
     doSkills ? '安装组织 skills' : null,
     level === 'skip' ? null : '准备开发环境',
