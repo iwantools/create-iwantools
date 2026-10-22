@@ -17,5 +17,17 @@
     "@clack/prompts": "^1.8.1"
   },
   "license": "UNLICENSED",
-  "private": false
+  "private": false,
+  "keywords": [
+    "create",
+    "scaffold",
+    "iwantools",
+    "cli",
+    "workspace"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iwantools/create-iwantools.git"
+  },
+  "bugs": "https://github.com/iwantools/create-iwantools/issues"
 }
