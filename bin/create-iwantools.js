@@ -18,6 +18,8 @@ const ENTRY_REPO = 'iwantools/iwantools'
 const DEFAULT_DIR = path.join(homedir(), 'Documents', 'workspace', 'iwantools')
 const args = process.argv.slice(2)
 const yes = args.includes('--yes') || args.includes('-y')
+const dirIndex = args.indexOf('--dir')
+const dirArg = dirIndex !== -1 && args[dirIndex + 1] ? args[dirIndex + 1] : ''
 
 const sh = (cmd, cmdArgs, opts = {}) =>
   spawnSync(cmd, cmdArgs, { encoding: 'utf8', stdio: opts.inherit ? 'inherit' : 'pipe', ...opts })
@@ -84,8 +86,9 @@ async function main() {
   p.log.success(`GitHub 已登录：${login || '（身份未读取到，继续）'}`)
 
   // 3) 目标目录
-  let dir = DEFAULT_DIR
-  if (!yes) {
+  let dir = dirArg || DEFAULT_DIR
+  if (dir.startsWith('~')) dir = path.join(homedir(), dir.slice(1))
+  if (!yes && !dirArg) {
     const answer = await p.text({ message: '工作空间目录', placeholder: DEFAULT_DIR, defaultValue: DEFAULT_DIR })
     if (p.isCancel(answer)) { p.cancel('已取消'); process.exit(0) }
     dir = answer.startsWith('~') ? path.join(homedir(), answer.slice(1)) : answer
@@ -94,6 +97,9 @@ async function main() {
   // 4) 克隆入口仓
   if (existsSync(path.join(dir, '.git'))) {
     p.log.success(`入口仓已存在：${dir}`)
+  } else if (existsSync(dir)) {
+    p.log.error(`目录已存在且不是 git 仓库：${dir}（请换一个目录或手动处理后重试）`)
+    process.exit(1)
   } else {
     const s = p.spinner()
     s.start(`克隆入口仓 ${ENTRY_REPO} -> ${dir}`)
@@ -104,6 +110,7 @@ async function main() {
 
   // 5) 按清单恢复全部仓库
   const tsv = path.join(dir, 'workspace', 'repos.tsv')
+  if (!existsSync(tsv)) { p.log.error(`清单缺失：${tsv}（入口仓克隆不完整？）`); process.exit(1) }
   const repos = parseReposTsv(tsv)
   for (const repo of repos) {
     const target = path.join(dir, repo.relPath)
